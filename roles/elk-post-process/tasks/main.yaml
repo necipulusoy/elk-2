@@ -1,0 +1,20 @@
+---
+- name: Ensure discovery.seed_hosts is updated
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: '^#?discovery\.seed_hosts:.*$'
+    line: "discovery.seed_hosts: [\"{{ seed_hosts | replace(',', '\", \"') }}\"]"
+    backrefs: yes
+
+- name: Remove the line from elasticsearch.yml if on elk1
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: '^cluster\.initial_master_nodes:.*$'
+    state: absent
+  when: inventory_hostname == "elk1"
+
+- name: Restart Elasticsearch service
+  service:
+    name: elasticsearch
+    state: restarted
+    enabled: yes

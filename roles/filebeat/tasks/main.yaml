@@ -1,0 +1,64 @@
+# - name: Ensure the namespace exists
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: Namespace
+#       metadata:
+#         name: "{{ filebeat_namespace }}"
+
+# - name: Create secret for elk user-pass
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: Secret
+#       metadata:
+#         name: elasticsearch-master-credentials
+#         namespace: logging
+#       stringData:
+#         username: "elastic"
+#         password: "{{ hostvars['elk1']['elastic_password'] }}"
+
+# - name: Fetch file from elk-master
+#   ansible.builtin.fetch:
+#     src: /etc/elasticsearch/certs/http_ca.crt
+#     dest: /tmp/ca.crt
+#     flat: yes
+#   delegate_to: elk1
+
+# - name: Read cert
+#   command: cat /tmp/ca.crt
+#   register: ca_cert
+
+# - name: Create secret for elk cert
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: Secret
+#       metadata:
+#         name: elasticsearch-master-certs
+#         namespace: logging
+#       stringData:
+#         ca.crt: "{{ ca_cert.stdout }}"
+
+- name: Render the Filebeat values file
+  ansible.builtin.template:
+    src: /home/ubuntu/elk-ansible-template/roles/filebeat/templates/filebeat-values.yaml.j2
+    dest: /tmp/filebeat-values.yaml
+
+- name: Add stable chart repo
+  kubernetes.core.helm_repository:
+    name: elastic
+    repo_url: "https://helm.elastic.co"
+    force_update: yes
+
+- name: Deploy Filebeat chart using values files on target
+  kubernetes.core.helm:
+    name: filebeat
+    chart_ref: elastic/filebeat
+    release_namespace: logging
+    create_namespace: true
+    values_files:
+      - /tmp/filebeat-values.yaml

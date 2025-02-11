@@ -1,0 +1,20 @@
+input {
+  beats {
+   port => 5044
+  }
+}
+
+filter {
+}
+
+output {
+  elasticsearch {
+    hosts => {{ elastic_hosts.split(',') | map('quote') }}
+    user => 'elastic'
+    password => '{{ hostvars['elk1']['elastic_password'] }}'
+    index => "index-name-%{+YYYY.MM.dd}" # change index name
+    ssl => true
+    cacert => "/etc/logstash/certs/http_ca.crt"
+    ssl_certificate_verification => true
+  }
+}

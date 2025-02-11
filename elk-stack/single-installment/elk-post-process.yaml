@@ -1,0 +1,5 @@
+- hosts: elk-all
+  become: true
+  gather_facts: true
+  roles:
+    - elk-post-process
