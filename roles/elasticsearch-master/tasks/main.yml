@@ -1,18 +1,16 @@
 ---
-- name: Install required packages for RHEL
+- name: Install required packages
   ansible.builtin.dnf:
     name: "{{ item }}"
     state: present
-    update_cache: yes
-  loop:
+  with_items:
     - gpgme
     - curl
     - procps-ng
     - net-tools
     - gnupg2
 
-
-- name: Add Elasticsearch GPG Key and YUM Repository
+- name: Add Elasticsearch GPG Key
   block:
     - name: Import Elasticsearch GPG Key
       ansible.builtin.shell: "curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor > /etc/pki/rpm-gpg/elasticsearch-keyring.gpg"
@@ -31,36 +29,84 @@
         name: elasticsearch
         state: present
 
-- name: Check if Elasticsearch node is already part of the cluster
-  shell: curl --silent --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk-master']['elastic_password'] }} https://{{ ansible_host }}:9200/_cat/nodes?h=name
-  register: existing_nodes
-  failed_when: false
-  changed_when: false
+- name: Update Elasticsearch Configuration File
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: '^network\.host:', line: 'network.host: {{ ansible_host }}' } 
+    - { regexp: '^http\.port:', line: 'http.port: 9200' }
+    - { regexp: '^cluster\.name:', line: 'cluster.name: {{ elk_cluster_name }}' }
+    - { regexp: '^node\.name:', line: 'node.name: {{ node_name }}' }
+    - { regexp: '^cluster\.initial_master_nodes:', line: 'cluster.initial_master_nodes: {{ initial_master_node }}' } 
+    - { regexp: '^path\.data:', line: 'path.data: {{ elasticsearch_path }}' }
 
-- name: Run elasticsearch-reconfigure-node with the enrollment token (if not in cluster)
-  shell: test -f /etc/elasticsearch/reconfigure_done || /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token {{ hostvars['elk-master']['enrollment_token'] }}
-  args:
-    stdin: "y\n"
-  register: reconfigure_output
-  changed_when: reconfigure_output.rc == 0
-  when: "'{{ inventory_hostname }}' not in existing_nodes.stdout"
-
-- name: Create reconfigure_done marker file
+- name: Create data directory
   file:
-    path: /etc/elasticsearch/reconfigure_done
-    state: touch
-  when: reconfigure_output is changed
+    path: /mnt/data/elasticsearch
+    state: directory
+    mode: '0755'
+    recurse: yes
+    owner: elasticsearch
+    group: elasticsearch
+
+# - name: Ensure ownership of data directory
+#   file:
+#     path: /mnt/data/elasticsearch
+#     state: directory
+#     recurse: yes
+#     owner: elasticsearch
+#     group: elasticsearch
 
 - name: Enable and start Elasticsearch service
-  ansible.builtin.service:
+  service:
     name: elasticsearch
     state: started
     enabled: yes
 
+- name: Fix permissions for Elasticsearch config directory
+  ansible.builtin.file:
+    path: /etc/elasticsearch
+    state: directory
+    recurse: yes
+    owner: elasticsearch
+    group: elasticsearch
+    mode: '0770'
+
+- name: Run Elasticsearch Reset Password Command
+  command: sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-reset-password auto -u elastic
+  args:
+    stdin: "y\n"
+  register: reset_password_output
+
+- name: Set elastic password as fact
+  set_fact:
+    elastic_password: "{{ reset_password_output.stdout | regex_search('New value: (\\S+)', '\\1') | first }}"
+
+- name: Display ELK password
+  debug:
+    msg: "{{ elastic_password }}"
+
 - name: Use curl to test Elasticsearch connection
-  shell: curl --silent --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk-master']['elastic_password'] }} https://{{ ansible_host }}:9200/_cluster/health?pretty
+  command: >
+    curl --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ elastic_password }} https://localhost:9200
   register: curl_response
 
 - name: Display curl response
-  ansible.builtin.debug:
+  debug:
     msg: "{{ curl_response.stdout }}"
+
+- name: Run elasticsearch-create-enrollment-token to Node
+  command: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s node
+  register: enrollment_token_output
+
+- name: Run elasticsearch-create-enrollment-token to Kibana
+  command: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
+  register: kibana_enrollment_token_output
+
+- name: Save the enrollment token as a global fact
+  set_fact:
+      enrollment_token: "{{ enrollment_token_output.stdout }}"
+      elastic_password: "{{ elastic_password }}"
+      kibana_enrollment_token: "{{ kibana_enrollment_token_output.stdout }}"
