@@ -89,6 +89,7 @@
 # Handlers
 handlers:
   - name: Restart Elasticsearch
-    service:
+    ansible.builtin.service:
       name: elasticsearch
       state: restarted
+
