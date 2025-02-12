@@ -4,12 +4,13 @@
     name: "{{ item }}"
     state: present
     update_cache: yes
-  with_items:
+  loop:
     - gpgme
     - curl
     - procps-ng
     - net-tools
     - gnupg2
+
 
 - name: Add Elasticsearch GPG Key and YUM Repository
   block:
