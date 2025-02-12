@@ -51,7 +51,7 @@
     owner: elasticsearch
     group: elasticsearch
 
-- name: Check if Elasticsearch node is already part of a cluster
+- name: Check if Elasticsearch node is already part of the cluster
   shell: curl --silent --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk1']['elastic_password'] }} https://{{ ansible_host }}:9200/_cat/nodes?h=name
   register: existing_nodes
   failed_when: false
@@ -63,8 +63,6 @@
     stdin: "y\n"
   register: reconfigure_output
   changed_when: reconfigure_output.rc == 0
-  notify:
-    - Restart Elasticsearch
   when: "'{{ inventory_hostname }}' not in existing_nodes.stdout"
 
 - name: Create reconfigure_done marker file
@@ -88,10 +86,3 @@
   debug:
     msg: "{{ curl_response.stdout }}"
   when: inventory_hostname == "elk3"
-
-# Handlers
-handlers:
-  - name: Restart Elasticsearch
-    ansible.builtin.service:
-      name: elasticsearch
-      state: restarted
