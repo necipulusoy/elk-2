@@ -1,0 +1,94 @@
+---
+- name: Install apt package requirements
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - gpg-agent
+    - curl
+    - procps
+    - net-tools
+    - gnupg
+
+- name: Add Elasticsearch GPG Key and APT Repository
+  block:
+    - name: elasticsearch-install | Import Elasticsearch GPG Key
+      ansible.builtin.shell: "curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor > /usr/share/keyrings/elasticsearch-keyring.gpg"
+
+    - name: Add Elasticsearch APT Repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main"
+        state: present
+        filename: "elastic-8.x.list"
+
+    - name: Install Elasticsearch package
+      ansible.builtin.apt:
+        name: elasticsearch
+        state: present
+
+- name: Update Elasticsearch Configuration File
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: '^network\.host:', line: 'network.host: {{ ansible_host }}' }
+    - { regexp: '^http\.port:', line: 'http.port: 9200' }
+    - { regexp: '^cluster\.name:', line: 'cluster.name: {{ elk_cluster_name }}' }
+    - { regexp: '^node\.name:', line: 'node.name: {{ node_name }}' }
+    - { regexp: '^path\.data:', line: 'path.data: {{ elasticsearch_path }}' }
+
+- name: Create data directory
+  file:
+    path: /mnt/data/elasticsearch
+    state: directory
+    mode: '0755'
+    recurse: yes
+    owner: elasticsearch
+    group: elasticsearch
+
+- name: Check if Elasticsearch node is already part of a cluster
+  shell: curl --silent --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk1']['elastic_password'] }} https://{{ ansible_host }}:9200/_cat/nodes?h=name
+  register: existing_nodes
+  failed_when: false
+  changed_when: false
+
+- name: Run elasticsearch-reconfigure-node with the enrollment token (if not in cluster)
+  shell: test -f /etc/elasticsearch/reconfigure_done || /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token {{ hostvars['elk1']['enrollment_token'] }}
+  args:
+    stdin: "y\n"
+  register: reconfigure_output
+  changed_when: reconfigure_output.rc == 0
+  notify:
+    - Restart Elasticsearch
+  when: "'{{ inventory_hostname }}' not in existing_nodes.stdout"
+
+- name: Create reconfigure_done marker file
+  file:
+    path: /etc/elasticsearch/reconfigure_done
+    state: touch
+  when: reconfigure_output is changed
+
+- name: Enable and start Elasticsearch service
+  service:
+    name: elasticsearch
+    state: started
+    enabled: yes
+
+- name: Use curl to test Elasticsearch connection
+  shell: curl --silent --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk1']['elastic_password'] }} https://{{ ansible_host }}:9200/_cluster/health?pretty
+  register: curl_response
+  when: inventory_hostname == "elk3"
+
+- name: Display curl response
+  debug:
+    msg: "{{ curl_response.stdout }}"
+  when: inventory_hostname == "elk3"
+
+# Handlers
+handlers:
+  - name: Restart Elasticsearch
+    service:
+      name: elasticsearch
+      state: restarted
