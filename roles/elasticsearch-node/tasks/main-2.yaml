@@ -1,29 +1,32 @@
 ---
-- name: Install apt package requirements
-  ansible.builtin.apt:
+- name: Install required packages for RHEL
+  ansible.builtin.dnf:
     name: "{{ item }}"
     state: present
     update_cache: yes
   with_items:
-    - gpg-agent
+    - gpgme
     - curl
-    - procps
+    - procps-ng
     - net-tools
-    - gnupg
+    - gnupg2
 
-- name: Add Elasticsearch GPG Key and APT Repository
+- name: Add Elasticsearch GPG Key and YUM Repository
   block:
     - name: elasticsearch-install | Import Elasticsearch GPG Key
-      ansible.builtin.shell: "curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor > /usr/share/keyrings/elasticsearch-keyring.gpg"
+      ansible.builtin.shell: "curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor > /etc/pki/rpm-gpg/elasticsearch-keyring.gpg"
 
-    - name: Add Elasticsearch APT Repository
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/8.x/apt stable main"
-        state: present
-        filename: "elastic-8.x.list"
+    - name: Add Elasticsearch YUM Repository
+      ansible.builtin.yum_repository:
+        name: elasticsearch
+        description: "Elasticsearch repository for 8.x packages"
+        baseurl: "https://artifacts.elastic.co/packages/8.x/yum"
+        gpgcheck: yes
+        gpgkey: "file:///etc/pki/rpm-gpg/elasticsearch-keyring.gpg"
+        enabled: yes
 
     - name: Install Elasticsearch package
-      ansible.builtin.apt:
+      ansible.builtin.dnf:
         name: elasticsearch
         state: present
 
@@ -92,4 +95,3 @@ handlers:
     ansible.builtin.service:
       name: elasticsearch
       state: restarted
-
