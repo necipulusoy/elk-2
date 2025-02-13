@@ -33,7 +33,7 @@ echo "Removing Elasticsearch data files..."
 sudo rm -rf /var/lib/elasticsearch
 
 echo "Removing Elasticsearch cache and temporary files..."
-sudo rm -rf /mnt/data/elasticsearch
+sudo rm -rf /data/elasticsearch
 
 echo "Checking if Elasticsearch package is still installed..."
 rpm -qa | grep elasticsearch
