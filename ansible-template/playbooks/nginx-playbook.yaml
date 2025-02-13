@@ -1,5 +1,0 @@
-- hosts: nginx_server
-  become: true
-  gather_facts: true
-  roles:
-    - nginx-installation

@@ -1,6 +1,0 @@
-- hosts: dev_downstream_rke2_agent
-  become: true
-  gather_facts: true
-  roles:
-    - prerequirements
-    - rke2-worker-installation

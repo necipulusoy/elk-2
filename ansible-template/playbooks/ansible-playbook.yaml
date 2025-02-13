@@ -1,5 +1,0 @@
-- hosts: ansible_server
-  become: true
-  gather_facts: true
-  roles:
-    - custom-installation

@@ -1,4 +1,0 @@
-- hosts: dev_downstream_rke2_master
-  gather_facts: true
-  roles:
-    - filebeat

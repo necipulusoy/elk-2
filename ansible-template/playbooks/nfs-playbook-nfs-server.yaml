@@ -1,5 +1,0 @@
-- hosts: nonprod_nfs ## change group of nodes
-  become: true
-  gather_facts: true
-  roles:
-    - nfs-prerequirements-local

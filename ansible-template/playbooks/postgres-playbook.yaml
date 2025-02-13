@@ -1,6 +1,0 @@
-- hosts: postgres
-  become: yes
-  gather_facts: true
-  roles:
-    - postgres-installation
-
