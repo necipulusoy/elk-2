@@ -1,0 +1,68 @@
+- name: Update all packages
+  apt:
+    update_cache: yes
+
+- name: Install NFS server package
+  apt:
+    name: nfs-kernel-server
+    state: present
+
+- name: Create a directory to share
+  file:
+    path: /data/nfs_share
+    state: directory
+    mode: '777'
+
+- name: Modify ownership & permissions of the shared directory
+  file:
+    path: /data/nfs_share
+    owner: nobody
+    group: nogroup
+    mode: '777'
+
+- name: Ensure NFS export entry for master node
+  lineinfile:
+    path: /etc/exports
+    state: present
+    line: /data/nfs_share {{ ip_of_master_node }}(rw,sync,no_subtree_check,no_root_squash)
+    create: yes
+    insertafter: EOF
+
+- name: Ensure NFS export entry for worker node
+  lineinfile:
+    path: /etc/exports
+    state: present
+    line: "/data/nfs_share {{ ip_of_worker_node }}(rw,sync,no_subtree_check,no_root_squash)"
+    create: yes
+    insertafter: EOF
+
+- name: Export the shared directory
+  command: exportfs -a
+
+- name: Restart NFS service
+  systemd:
+    name: nfs-kernel-server
+    state: restarted
+
+- name: Disable the ufw firewall (on Ubuntu, if configured).
+  service:
+    name: ufw
+    state: stopped
+    enabled: false
+
+
+# - name: Allow everything and enable UFW
+#   ufw:
+#     state: enabled
+    
+# - name: Allow NFS from master node
+#   ufw:
+#     rule: allow
+#     from_ip: "{{ ip_of_master_node }}"
+#     to_port: "nfs"
+
+# - name: Allow NFS from worker node
+#   ufw:
+#     rule: allow
+#     from_ip: "{{ ip_of_worker_node }} "
+#     to_port: "nfs"

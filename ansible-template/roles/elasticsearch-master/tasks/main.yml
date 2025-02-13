@@ -1,0 +1,100 @@
+- name: Install required packages
+  ansible.builtin.dnf:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - gpgme
+    - curl
+    - procps-ng
+    - net-tools
+    - gnupg2
+
+- name: Import Elasticsearch GPG Key
+  ansible.builtin.rpm_key:
+    key: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    state: present
+
+- name: Add Elasticsearch YUM Repository
+  ansible.builtin.yum_repository:
+    name: elasticsearch
+    description: "Elasticsearch repository for 8.x packages"
+    baseurl: "https://artifacts.elastic.co/packages/8.x/yum"
+    gpgcheck: yes
+    gpgkey: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+    enabled: yes
+
+- name: Install Elasticsearch package
+  ansible.builtin.dnf:
+    name: elasticsearch
+    state: present
+
+- name: Install Elasticsearch package
+  ansible.builtin.dnf:
+    name: elasticsearch
+    state: present
+
+- name: Update Elasticsearch Configuration File
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: '^network\.host:', line: 'network.host: {{ ansible_host }}' }
+    - { regexp: '^http\.port:', line: 'http.port: 9200' }
+    - { regexp: '^cluster\.name:', line: 'cluster.name: {{ elk_cluster_name }}' }
+    - { regexp: '^node\.name:', line: 'node.name: {{ node_name }}' }
+    - { regexp: '^cluster\.initial_master_nodes:', line: 'cluster.initial_master_nodes: {{ initial_master_node }}' }
+    - { regexp: '^path\.data:', line: 'path.data: {{ elasticsearch_path }}' }
+
+- name: Create data directory with correct permissions
+  ansible.builtin.file:
+    path: /mnt/data/elasticsearch
+    state: directory
+    mode: '0755'
+    recurse: yes
+    owner: elasticsearch
+    group: elasticsearch
+
+- name: Enable and start Elasticsearch service
+  ansible.builtin.service:
+    name: elasticsearch
+    state: started
+    enabled: yes
+
+
+- name: Run Elasticsearch Reset Password Command
+  ansible.builtin.command:
+    cmd: sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch-reset-password auto -u elastic
+  register: reset_password_output
+  changed_when: "'New value:' in reset_password_output.stdout"
+
+- name: Set elastic password as fact
+  set_fact:
+    elastic_password: "{{ reset_password_output.stdout | regex_search('New value: (\\S+)', '\\1') | default('') }}"
+
+- name: Display ELK password
+  ansible.builtin.debug:
+    msg: "Elastic password: {{ elastic_password }}"
+
+- name: Use curl to test Elasticsearch connection
+  ansible.builtin.command: >
+    curl --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ elastic_password }} https://localhost:9200
+  register: curl_response
+
+- name: Display curl response
+  ansible.builtin.debug:
+    msg: "{{ curl_response.stdout }}"
+
+- name: Run elasticsearch-create-enrollment-token for Node
+  ansible.builtin.command: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s node
+  register: enrollment_token_output
+
+- name: Run elasticsearch-create-enrollment-token for Kibana
+  ansible.builtin.command: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
+  register: kibana_enrollment_token_output
+
+- name: Save enrollment tokens and elastic password as facts
+  set_fact:
+    enrollment_token: "{{ enrollment_token_output.stdout }}"
+    kibana_enrollment_token: "{{ kibana_enrollment_token_output.stdout }}"
+    elastic_password: "{{ elastic_password }}"
