@@ -1,4 +1,0 @@
----
-# vars file for kibana
-logstash_jvm_xmx: 2g # change vm ram size/2
-logstash_jvm_xms: 2g # change vm ram size/2
