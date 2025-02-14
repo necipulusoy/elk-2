@@ -1,28 +1,27 @@
----
-- name: Install required packages
-  ansible.builtin.dnf:
-    name: dnf-plugins-core
+- name: Import Kibana GPG Key
+  ansible.builtin.shell: "rpm --import https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+
+- name: Add Kibana YUM Repository using blockinfile
+  ansible.builtin.blockinfile:
+    path: /etc/yum.repos.d/kibana.repo
+    block: |
+      [kibana-8.x]
+      name=Kibana repository for 8.x packages
+      baseurl=https://artifacts.elastic.co/packages/8.x/yum
+      gpgcheck=1
+      gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+      enabled=1
+      autorefresh=1
+      type=rpm-md
+    create: yes
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install Kibana package
+  ansible.builtin.yum:
+    name: kibana
     state: present
-    update_cache: yes
-
-- name: Add Elasticsearch GPG Key
-  block:
-    - name: Import Elasticsearch GPG Key
-      ansible.builtin.shell: "curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor > /etc/pki/rpm-gpg/elasticsearch-keyring.gpg"
-
-    - name: Add Elasticsearch YUM Repository
-      ansible.builtin.yum_repository:
-        name: elasticsearch
-        description: "Elasticsearch repository for 8.x packages"
-        baseurl: "https://artifacts.elastic.co/packages/8.x/yum"
-        gpgcheck: yes
-        gpgkey: "file:///etc/pki/rpm-gpg/elasticsearch-keyring.gpg"
-        enabled: yes
-
-    - name: Install Kibana package
-      ansible.builtin.dnf:
-        name: kibana
-        state: present
 
 - name: Run Kibana Enrollment Token Command
   shell: /usr/share/kibana/bin/kibana-setup --enrollment-token {{ hostvars['elk1']['kibana_enrollment_token'] }}
@@ -35,7 +34,7 @@
     regexp: '^#?elasticsearch\.hosts:.*$'
     line: "elasticsearch.hosts: [\"{{ elastic_hosts | replace(',', '\", \"') }}\"]"
     backrefs: yes
-  tags: deneme
+
 
 - name: Enable and Start Kibana Service
   service:
