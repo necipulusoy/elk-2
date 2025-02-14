@@ -10,26 +10,33 @@
     - gnupg2
 
 - name: Import Elasticsearch GPG Key
-  ansible.builtin.rpm_key:
-    key: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+  ansible.builtin.shell: "rpm --import https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+
+- name: Add Elasticsearch YUM Repository using blockinfile
+  ansible.builtin.blockinfile:
+    path: /etc/yum.repos.d/elasticsearch.repo
+    block: |
+      [elasticsearch]
+      name=Elasticsearch repository for 8.x packages
+      baseurl=https://artifacts.elastic.co/packages/8.x/yum
+      gpgcheck=1
+      gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch
+      enabled=0
+      autorefresh=1
+      type=rpm-md
+    create: yes
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install Elasticsearch package with enabled repository
+  ansible.builtin.yum:
+    name: elasticsearch
+    enablerepo: elasticsearch
     state: present
 
-- name: Add Elasticsearch YUM Repository
-  ansible.builtin.yum_repository:
-    name: elasticsearch
-    description: "Elasticsearch repository for 8.x packages"
-    baseurl: "https://artifacts.elastic.co/packages/8.x/yum"
-    gpgcheck: yes
-    gpgkey: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
-    enabled: yes
-
-- name: Install Elasticsearch
-  ansible.builtin.dnf:
-    name: elasticsearch
-    state: present
-
-- name: Configure Elasticsearch
-  ansible.builtin.lineinfile:
+- name: Update Elasticsearch Configuration File
+  lineinfile:
     path: /etc/elasticsearch/elasticsearch.yml
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
@@ -40,14 +47,15 @@
     - { regexp: '^node\.name:', line: 'node.name: {{ node_name }}' }
     - { regexp: '^path\.data:', line: 'path.data: {{ elasticsearch_path }}' }
 
-- name: Create data directory with correct permissions
+- name: Create data directory
   ansible.builtin.file:
-    path: /mnt/data/elasticsearch
+    path: "{{ elasticsearch_path }}"
     state: directory
     mode: '0755'
+    recurse: yes
     owner: elasticsearch
     group: elasticsearch
-    recurse: yes
+
 
 - name: Check if Elasticsearch node is already part of a cluster
   shell: curl --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk1']['elastic_password'] }} https://{{ ansible_host }}:9200/_cluster/health?pretty 
@@ -58,13 +66,16 @@
 - name: Debug hostvars for elk-master
   debug:
     var: hostvars['elk1']['enrollment_token']
-    var: cluster_health
 
-# - name: Run elasticsearch-reconfigure-node with the enrollment token
-#   shell: /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token {{ hostvars['elk1']['enrollment_token'] }}
-#   args:
-#     stdin: "y\n"
-#   when: cluster_health.stdout | from_json | json_query('cluster_name') != elk_cluster_name
+
+- name: Run elasticsearch-reconfigure-node with the enrollment token
+  shell: /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node --enrollment-token {{ hostvars['elk1']['enrollment_token'] }}
+  args:
+    stdin: "y\n"
+  when: >
+    cluster_health.stdout is defined and 
+    (cluster_health.stdout | from_json | json_query('cluster_name') != elk_cluster_name)
+
 
 - name: Enable and start Elasticsearch service
   ansible.builtin.service:
@@ -73,11 +84,11 @@
     enabled: yes
 
 - name: Use curl to test Elasticsearch connection
-  shell: "curl --silent --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk1']['elastic_password'] }} https://{{ ansible_host }}:9200/_cluster/health?pretty"
+  shell: curl --cacert /etc/elasticsearch/certs/http_ca.crt -u elastic:{{ hostvars['elk1']['elastic_password'] }} https://{{ ansible_host }}:9200/_cluster/health?pretty
   register: curl_response
   when: inventory_hostname == "elk3"
 
 - name: Display curl response
-  ansible.builtin.debug:
+  debug:
     msg: "{{ curl_response.stdout }}"
   when: inventory_hostname == "elk3"
